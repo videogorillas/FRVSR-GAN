@@ -6,6 +6,7 @@ Adapted from FR-SRGAN, MIT 6.819 Advances in Computer Vision, Nov 2018
 """
 
 import argparse
+import os
 from math import log10
 import gc
 import pandas as pd
@@ -25,6 +26,7 @@ UPSCALE_FACTOR = 4
 
 # Handle command line arguments
 parser = argparse.ArgumentParser(description='Train iSeeBetter: Super Resolution Models')
+parser.add_argument('-o', '--out_path', default='.', type=str, help='output path')
 parser.add_argument('-e', '--num_epochs', default=1000, type=int, help='train epoch number')
 parser.add_argument('-w', '--width', default=64, type=int, help='lr pic width')
 parser.add_argument('-ht', '--height', default=64, type=int, help='lr pic height')
@@ -35,6 +37,11 @@ parser.add_argument('-x', '--express', default=False, action='store_true', help=
 parser.add_argument('-v', '--debug', default=False, action='store_true', help='Print debug spew.')
 
 args = parser.parse_args()
+OUT_PATH = args.out_path
+os.makedirs(OUT_PATH, exist_ok=True)
+os.makedirs(f'{OUT_PATH}/epochs', exist_ok=True)
+os.makedirs(f'{OUT_PATH}/statistics', exist_ok=True)
+
 NUM_EPOCHS = args.num_epochs
 WIDTH = args.width
 HEIGHT = args.height
@@ -207,8 +214,8 @@ def saveModelParams(epoch, runningResults, validationResults={}):
     results = {'DLoss': [], 'GLoss': [], 'DScore': [], 'GScore': [], 'PSNR': [], 'SSIM': []}
 
     # Save model parameters
-    torch.save(netG.state_dict(), 'epochs/netG_epoch_%d_%d.pth' % (UPSCALE_FACTOR, epoch))
-    torch.save(netD.state_dict(), 'epochs/netD_epoch_%d_%d.pth' % (UPSCALE_FACTOR, epoch))
+    torch.save(netG.state_dict(), '%s/epochs/netG_epoch_%d_%d.pth' % (OUT_PATH, UPSCALE_FACTOR, epoch))
+    torch.save(netD.state_dict(), '%s/epochs/netD_epoch_%d_%d.pth' % (OUT_PATH, UPSCALE_FACTOR, epoch))
 
     # Save Loss\Scores\PSNR\SSIM
     results['DLoss'].append(runningResults['DLoss'] / runningResults['batchSize'])
@@ -219,7 +226,7 @@ def saveModelParams(epoch, runningResults, validationResults={}):
     #results['SSIM'].append(validationResults['SSIM'])
 
     if epoch % 1 == 0 and epoch != 0:
-        out_path = 'statistics/'
+        out_path = f'{OUT_PATH}/statistics/'
         data_frame = pd.DataFrame(data={'DLoss': results['DLoss'], 'GLoss': results['GLoss'], 'DScore': results['DScore'],
                                   'GScore': results['GScore']},#, 'PSNR': results['PSNR'], 'SSIM': results['SSIM']},
                                   index=range(1, epoch + 1))
