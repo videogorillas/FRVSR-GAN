@@ -26,10 +26,10 @@ UPSCALE_FACTOR = 4
 # Handle command line arguments
 parser = argparse.ArgumentParser(description='Train iSeeBetter: Super Resolution Models')
 parser.add_argument('-e', '--num_epochs', default=1000, type=int, help='train epoch number')
-parser.add_argument('-w', '--width', default=112, type=int, help='lr pic width')
+parser.add_argument('-w', '--width', default=64, type=int, help='lr pic width')
 parser.add_argument('-ht', '--height', default=64, type=int, help='lr pic height')
 parser.add_argument('-d', '--dataset_size', default=0, type=int, help='dataset_size, 0 to use all')
-parser.add_argument('-b', '--batchSize', default=2, type=int, help='batchSize, default 2')
+parser.add_argument('-b', '--batchSize', default=3, type=int, help='batchSize, default 2')
 parser.add_argument('-l', '--lr', default=1e-5, type=float, help='learning rate, default 1e-5')
 parser.add_argument('-x', '--express', default=False, action='store_true', help='Express mode: no validation.')
 parser.add_argument('-v', '--debug', default=False, action='store_true', help='Print debug spew.')
