@@ -196,7 +196,7 @@ def validateModel():
 
             HREst, LREst = netG(lr)
             batchMSE.append(((HREst - hr) ** 2).data.mean())
-            batchSSIM.append(pts.SSIM(HREst, hr).item())
+            batchSSIM.append(pts.ssim(HREst, hr).item())
 
         batchMSE = torch.Tensor(batchMSE).mean()
         validationResults['MSE'] += batchMSE * batchSize
