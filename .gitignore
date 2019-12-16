@@ -120,3 +120,4 @@ venv.bak/
 *.mov
 *.avi
 *.mp4
+tmp/

@@ -98,8 +98,8 @@ class IMDBDataset(data.Dataset):
         h, w, c = lr[0].shape
         assert h == w and w == (self.hrheight // 4), f"lr WxH: {w}x{h}"
 
-        tlr = torch.tensor(np.array(lr)).transpose(1, 3) / 255.
-        thr = torch.tensor(np.array(hr)).transpose(1, 3) / 255.
+        tlr = torch.tensor(np.array(lr)).permute(0, 3, 1, 2) / 255.
+        thr = torch.tensor(np.array(hr)).permute(0, 3, 1, 2) / 255.
         return tlr, thr
 
     def __len__(self):

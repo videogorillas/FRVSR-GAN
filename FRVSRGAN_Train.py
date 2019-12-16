@@ -23,6 +23,7 @@ from SRGAN.model import Discriminator
 import SRGAN.pytorch_ssim as pts
 from visdom import Visdom
 from torch import tensor as tt
+import cv2
 
 ################################################## iSEEBETTER TRAINER KNOBS #############################################
 UPSCALE_FACTOR = 4
@@ -209,13 +210,14 @@ def trainModel(epoch):
             epoch, NUM_EPOCHS, dloss, gloss, dscore, gscore))
 
         current_step = trainBar.n
+
         if current_step % visdom_iter == 0:
-            lrimg = LRImgs[len(LRImgs) // 2]
-            hrimg = HRImgs[len(HRImgs) // 2]
-            srimg = fakeHRs[len(fakeHRs) // 2]
+            lrimg = LRImgs[len(LRImgs) // 2].detach().cpu()
+            hrimg = HRImgs[len(HRImgs) // 2].detach().cpu()
+            srimg = fakeHRs[len(fakeHRs) // 2].detach().cpu()
             vis.images(torch.clamp(UP(lrimg), 0, 1), opts=dict(title='LR'), win=lr_win)
-            vis.images(srimg, opts=dict(title='SR'), win=sr_win)
-            vis.images(hrimg, opts=dict(title='HR'), win=hr_win)
+            vis.images(torch.clamp(srimg, 0, 1), opts=dict(title='SR'), win=sr_win)
+            vis.images(torch.clamp(hrimg, 0, 1), opts=dict(title='HR'), win=hr_win)
             vis.line(X=tt([current_step]), Y=tt([dloss]).cpu(), win=dloss_win, update='append', opts=dloss_opts)
             vis.line(X=tt([current_step]), Y=tt([gloss]).cpu(), win=gloss_win, update='append', opts=gloss_opts)
             vis.line(X=tt([current_step]), Y=tt([dscore]).cpu(), win=dscore_win, update='append', opts=dscore_opts)

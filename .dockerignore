@@ -2,3 +2,4 @@ venv/
 .idea/
 weights/
 epochs/
+tmp/
