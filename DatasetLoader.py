@@ -87,8 +87,8 @@ class IMDBDataset(data.Dataset):
 
     def __getitem__(self, index):
         path = self.hrFrames[index]
-        hr = read_sept(path)[1:6]
-        assert len(hr) == 5
+        hr = read_sept(path)
+        assert len(hr) == 7
         H, W, C = hr[0].shape
         if W > self.hrheight:
             hr = [cv2.resize(img, (self.hrheight, self.hrheight), interpolation=cv2.INTER_LANCZOS4) for img in hr]

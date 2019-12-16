@@ -9,6 +9,8 @@ import argparse
 import os
 from math import log10
 import gc
+
+import numpy as np
 import pandas as pd
 import torch.optim as optim
 import torch.utils.data
@@ -19,6 +21,8 @@ from FRVSRGAN_Models import FRVSR
 from FRVSRGAN_Models import GeneratorLoss
 from SRGAN.model import Discriminator
 import SRGAN.pytorch_ssim as pts
+from visdom import Visdom
+from torch import tensor as tt
 
 ################################################## iSEEBETTER TRAINER KNOBS #############################################
 UPSCALE_FACTOR = 4
@@ -31,16 +35,22 @@ parser.add_argument('-e', '--num_epochs', default=1000, type=int, help='train ep
 parser.add_argument('-w', '--width', default=64, type=int, help='lr pic width')
 parser.add_argument('-ht', '--height', default=64, type=int, help='lr pic height')
 parser.add_argument('-d', '--dataset_size', default=0, type=int, help='dataset_size, 0 to use all')
-parser.add_argument('-b', '--batchSize', default=3, type=int, help='batchSize, default 2')
+parser.add_argument('-b', '--batchSize', default=2, type=int, help='batchSize, default 2')
 parser.add_argument('-l', '--lr', default=1e-5, type=float, help='learning rate, default 1e-5')
 parser.add_argument('-x', '--express', default=False, action='store_true', help='Express mode: no validation.')
 parser.add_argument('-v', '--debug', default=False, action='store_true', help='Print debug spew.')
+parser.add_argument('--visdom_host', default='localhost', type=str, help='visdom host')
 
 args = parser.parse_args()
 OUT_PATH = args.out_path
 os.makedirs(OUT_PATH, exist_ok=True)
 os.makedirs(f'{OUT_PATH}/epochs', exist_ok=True)
 os.makedirs(f'{OUT_PATH}/statistics', exist_ok=True)
+
+# visualize every N iterations
+visdom_iter = 20
+# save model every N iterations
+save_iter = 1000
 
 NUM_EPOCHS = args.num_epochs
 WIDTH = args.width
@@ -74,6 +84,7 @@ if torch.cuda.is_available():
         logger.info("Using CUDA device #: %s", torch.cuda.current_device())
         logger.info("CUDA device name: %s", torch.cuda.get_device_name(torch.cuda.current_device()))
 
+
     printCUDAStats()
 
     netG.cuda()
@@ -85,6 +96,24 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # Use Adam optimizer
 optimizerG = optim.Adam(netG.parameters(), lr=lr)
 optimizerD = optim.Adam(netD.parameters(), lr=lr)
+
+vis = Visdom(port=8097, server=args.visdom_host)
+gt_patch_size = HEIGHT * UPSCALE_FACTOR
+lr_win = vis.images(np.random.randn(batchSize, 3, gt_patch_size, gt_patch_size), opts=dict(title='lr'))
+hr_win = vis.images(np.random.randn(batchSize, 3, gt_patch_size, gt_patch_size), opts=dict(title='hr'))
+sr_win = vis.images(np.random.randn(batchSize, 3, gt_patch_size, gt_patch_size), opts=dict(title='sr'))
+ZERO = torch.zeros(1).cpu()
+dloss_opts = dict(xlabel='minibatches', ylabel='loss', title='Dloss', legend=['Dloss'])
+gloss_opts = dict(xlabel='minibatches', ylabel='loss', title='Gloss', legend=['Gloss'])
+dscore_opts = dict(xlabel='minibatches', ylabel='loss', title='DScore', legend=['D(x)'])
+gscore_opts = dict(xlabel='minibatches', ylabel='loss', title='GScore', legend=['D(G(z))'])
+dloss_win = vis.line(X=ZERO, Y=ZERO, opts=dloss_opts)
+gloss_win = vis.line(X=ZERO, Y=ZERO, opts=gloss_opts)
+dscore_win = vis.line(X=ZERO, Y=ZERO, opts=dscore_opts)
+gscore_win = vis.line(X=ZERO, Y=ZERO, opts=gscore_opts)
+
+UP = torch.nn.Upsample(mode='bilinear', scale_factor=UPSCALE_FACTOR)
+
 
 def trainModel(epoch):
     trainBar = tqdm(trainLoader)
@@ -105,6 +134,8 @@ def trainModel(epoch):
         fakeScrs = []
         realScrs = []
         DLoss = 0
+        LRImgs = []
+        HRImgs = []
 
         # Zero-out gradients, i.e., start afresh
         netD.zero_grad()
@@ -122,6 +153,8 @@ def trainModel(epoch):
 
             fakeHRs.append(fakeHR)
             fakeLRs.append(fakeLR)
+            LRImgs.append(LRImg)
+            HRImgs.append(HRImg)
             fakeScrs.append(fake_out)
             realScrs.append(realOut)
 
@@ -168,11 +201,29 @@ def trainModel(epoch):
         runningResults['DScore'] += realOut.data.item() * batchSize
         runningResults['GScore'] += fake_out.data.item() * batchSize
 
+        dloss = runningResults['DLoss'] / runningResults['batchSize']
+        gloss = runningResults['GLoss'] / runningResults['batchSize']
+        dscore = runningResults['DScore'] / runningResults['batchSize']
+        gscore = runningResults['GScore'] / runningResults['batchSize']
         trainBar.set_description(desc='[Epoch: %d/%d] D Loss: %.4f G Loss: %.4f D(x): %.4f D(G(z)): %.4f' % (
-            epoch, NUM_EPOCHS, runningResults['DLoss'] / runningResults['batchSize'],
-            runningResults['GLoss'] / runningResults['batchSize'],
-            runningResults['DScore'] / runningResults['batchSize'],
-            runningResults['GScore'] / runningResults['batchSize']))
+            epoch, NUM_EPOCHS, dloss, gloss, dscore, gscore))
+
+        current_step = trainBar.n
+        if current_step % visdom_iter == 0:
+            lrimg = LRImgs[len(LRImgs) // 2]
+            hrimg = HRImgs[len(HRImgs) // 2]
+            srimg = fakeHRs[len(fakeHRs) // 2]
+            vis.images(torch.clamp(UP(lrimg), 0, 1), opts=dict(title='LR'), win=lr_win)
+            vis.images(srimg, opts=dict(title='SR'), win=sr_win)
+            vis.images(hrimg, opts=dict(title='HR'), win=hr_win)
+            vis.line(X=tt([current_step]), Y=tt([dloss]).cpu(), win=dloss_win, update='append', opts=dloss_opts)
+            vis.line(X=tt([current_step]), Y=tt([gloss]).cpu(), win=gloss_win, update='append', opts=gloss_opts)
+            vis.line(X=tt([current_step]), Y=tt([dscore]).cpu(), win=dscore_win, update='append', opts=dscore_opts)
+            vis.line(X=tt([current_step]), Y=tt([gscore]).cpu(), win=gscore_win, update='append', opts=gscore_opts)
+
+        if current_step != 0 and current_step % save_iter == 0:
+            saveModelParams(epoch, runningResults, iter=current_step)
+
         gc.collect()
 
     netG.eval()
@@ -210,12 +261,16 @@ def validateModel():
 
         return validationResults
 
-def saveModelParams(epoch, runningResults, validationResults={}):
+def saveModelParams(epoch, runningResults, iter, validationResults={}):
     results = {'DLoss': [], 'GLoss': [], 'DScore': [], 'GScore': [], 'PSNR': [], 'SSIM': []}
 
     # Save model parameters
-    torch.save(netG.state_dict(), '%s/epochs/netG_epoch_%d_%d.pth' % (OUT_PATH, UPSCALE_FACTOR, epoch))
-    torch.save(netD.state_dict(), '%s/epochs/netD_epoch_%d_%d.pth' % (OUT_PATH, UPSCALE_FACTOR, epoch))
+    if iter is not None:
+        torch.save(netG.state_dict(), f'{OUT_PATH}/epochs/netG_epoch_{UPSCALE_FACTOR}_{epoch}_{iter}.pth')
+        torch.save(netG.state_dict(), f'{OUT_PATH}/epochs/netD_epoch_{UPSCALE_FACTOR}_{epoch}_{iter}.pth')
+    else:
+        torch.save(netG.state_dict(), '%s/epochs/netG_epoch_%d_%d.pth' % (OUT_PATH, UPSCALE_FACTOR, epoch))
+        torch.save(netD.state_dict(), '%s/epochs/netD_epoch_%d_%d.pth' % (OUT_PATH, UPSCALE_FACTOR, epoch))
 
     # Save Loss\Scores\PSNR\SSIM
     results['DLoss'].append(runningResults['DLoss'] / runningResults['batchSize'])
@@ -225,7 +280,7 @@ def saveModelParams(epoch, runningResults, validationResults={}):
     #results['PSNR'].append(validationResults['PSNR'])
     #results['SSIM'].append(validationResults['SSIM'])
 
-    if epoch % 1 == 0 and epoch != 0:
+    if epoch % 1 == 0 and epoch != 0 and iter is None:
         out_path = f'{OUT_PATH}/statistics/'
         data_frame = pd.DataFrame(data={'DLoss': results['DLoss'], 'GLoss': results['GLoss'], 'DScore': results['DScore'],
                                   'GScore': results['GScore']},#, 'PSNR': results['PSNR'], 'SSIM': results['SSIM']},

@@ -61,7 +61,7 @@ spec:
       restartPolicy: Never
       containers:
         - image: k10:31337/up4k:frvsrgan1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           name: frvsrgan
           volumeMounts:
             - mountPath: /dev/shm
@@ -81,7 +81,9 @@ spec:
             - "-o"
             - "/svlk/zhuker_train/frvsrgan1"
             - "-b"
-            - "4"
+            - "2"
+            - "--visdom_host"
+            - "http://frvsrganv"
           resources:
             limits:
               nvidia.com/gpu: 1
