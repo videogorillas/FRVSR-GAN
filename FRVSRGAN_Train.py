@@ -105,10 +105,10 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # resume_path/netD_epoch_4_1_197000.pth
 # resume_path/netD_epoch_4_1.pth
 def parse_resume_pth(pth_path: str) -> Dict[str, Any]:
-    basename = pth_path.rsplit('/', maxsplit=1)[-1]
+    basename = pth_path.rsplit('/', maxsplit=1)[-1].replace('.pth', '')
     tokens = basename.split('_')
     if len(tokens) == 5:
-        return {'epoch': int(tokens[3]), 'iter': int(tokens[4].replace('.pth', ''))}
+        return {'epoch': int(tokens[3]), 'iter': int(tokens[4])}
     elif len(tokens) == 4:
         return {'epoch': int(tokens[3]), 'iter': 0}
     else:
