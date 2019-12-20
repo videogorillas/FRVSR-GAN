@@ -6,9 +6,12 @@ Adapted from FR-SRGAN, MIT 6.819 Advances in Computer Vision, Nov 2018
 """
 
 import argparse
+import glob
 import os
 from math import log10
 import gc
+from stat import ST_MTIME
+from typing import List, Any, Dict
 
 import numpy as np
 import pandas as pd
@@ -25,6 +28,10 @@ from visdom import Visdom
 from torch import tensor as tt
 import cv2
 
+
+def latest_file(paths: List[str]) -> str:
+    return max(paths, key=lambda path: os.stat(path)[ST_MTIME])
+
 ################################################## iSEEBETTER TRAINER KNOBS #############################################
 UPSCALE_FACTOR = 4
 ########################################################################################################################
@@ -40,6 +47,7 @@ parser.add_argument('-b', '--batchSize', default=2, type=int, help='batchSize, d
 parser.add_argument('-l', '--lr', default=1e-5, type=float, help='learning rate, default 1e-5')
 parser.add_argument('-x', '--express', default=False, action='store_true', help='Express mode: no validation.')
 parser.add_argument('-v', '--debug', default=False, action='store_true', help='Print debug spew.')
+parser.add_argument('-r', '--resume_dir', type=str, help='resume training dir')
 parser.add_argument('--visdom_host', default='localhost', type=str, help='visdom host')
 
 args = parser.parse_args()
@@ -93,6 +101,40 @@ if torch.cuda.is_available():
     generatorCriterion.cuda()
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+# resume_path/netD_epoch_4_1_197000.pth
+# resume_path/netD_epoch_4_1.pth
+def parse_resume_pth(pth_path: str) -> Dict[str, Any]:
+    basename = pth_path.rsplit('/', maxsplit=1)[-1]
+    tokens = basename.split('_')
+    if len(tokens) == 5:
+        return {'epoch': int(tokens[3]), 'iter': int(tokens[4].replace('.pth', ''))}
+    elif len(tokens) == 4:
+        return {'epoch': int(tokens[3]), 'iter': 0}
+    else:
+        raise Exception(f'cant parse {pth_path}')
+
+
+start_epoch = 1
+
+if args.resume_dir is not None:
+    print(f"resuming from {args.resume_dir}")
+    netGpth = latest_file(glob.glob(f'{args.resume_dir}/netG_epoch_{UPSCALE_FACTOR}*.pth'))
+    print(f"resume netG {netGpth}")
+    assert netGpth is not None
+    g = parse_resume_pth(netGpth)
+
+    netDpth = latest_file(glob.glob(f'{args.resume_dir}/netD_epoch_{UPSCALE_FACTOR}*.pth'))
+    print(f"resume netD {netDpth}")
+    assert netDpth is not None
+    d = parse_resume_pth(netDpth)
+    assert g['epoch'] == d['epoch'] and g['iter'] == d['iter']
+
+    # TODO: start iteration
+    start_epoch = g['epoch'] + 1
+
+    netG.load_state_dict(torch.load(netGpth, map_location=device))
+    netD.load_state_dict(torch.load(netDpth, map_location=device))
 
 # Use Adam optimizer
 optimizerG = optim.Adam(netG.parameters(), lr=lr)
@@ -263,13 +305,14 @@ def validateModel():
 
         return validationResults
 
-def saveModelParams(epoch, runningResults, iter, validationResults={}):
+
+def saveModelParams(epoch, runningResults, iter=None, validationResults={}):
     results = {'DLoss': [], 'GLoss': [], 'DScore': [], 'GScore': [], 'PSNR': [], 'SSIM': []}
 
     # Save model parameters
     if iter is not None:
         torch.save(netG.state_dict(), f'{OUT_PATH}/epochs/netG_epoch_{UPSCALE_FACTOR}_{epoch}_{iter}.pth')
-        torch.save(netG.state_dict(), f'{OUT_PATH}/epochs/netD_epoch_{UPSCALE_FACTOR}_{epoch}_{iter}.pth')
+        torch.save(netD.state_dict(), f'{OUT_PATH}/epochs/netD_epoch_{UPSCALE_FACTOR}_{epoch}_{iter}.pth')
     else:
         torch.save(netG.state_dict(), '%s/epochs/netG_epoch_%d_%d.pth' % (OUT_PATH, UPSCALE_FACTOR, epoch))
         torch.save(netD.state_dict(), '%s/epochs/netD_epoch_%d_%d.pth' % (OUT_PATH, UPSCALE_FACTOR, epoch))
@@ -292,7 +335,7 @@ def saveModelParams(epoch, runningResults, iter, validationResults={}):
 def main():
     """ Lets begin the training process! """
 
-    for epoch in range(1, NUM_EPOCHS + 1):
+    for epoch in range(start_epoch, NUM_EPOCHS + 1):
         runningResults = trainModel(epoch)
 
         # Do validation only if express mode is not enabled
